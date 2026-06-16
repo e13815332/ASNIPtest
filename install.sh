@@ -11,7 +11,7 @@ set -euo pipefail
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; YELLOW='\033[0;33m'; NC='\033[0m'
 BOLD='\033[1m'
 
-VERSION="v1.0.5"
+VERSION="v1.0.6"
 
 logo() {
     echo -e "${CYAN}${BOLD}"
@@ -57,6 +57,7 @@ do_update() {
     else
         info "${YELLOW}$OLD_VER → $NEW_VER${NC} 已更新"
         info "重新编译 cf-scanner..."
+        rm -rf "$PROJECT_DIR/cf-scanner"    # 清除旧源码目录
         cd "$PROJECT_DIR/cf-scanner-src"
         if grep -q avx2 /proc/cpuinfo 2>/dev/null; then GOAMD=""; else GOAMD="GOAMD64=v2"; fi
         env $GOAMD go build -o "$PROJECT_DIR/cf-scanner" main.go
@@ -148,6 +149,7 @@ do_install() {
 
     # 编译
     info "编译 cf-scanner..."
+    rm -rf "$PROJECT_DIR/cf-scanner"    # 清除旧源码目录
     cd "$PROJECT_DIR/cf-scanner-src"
     if grep -q avx2 /proc/cpuinfo 2>/dev/null; then GOAMD=""; else GOAMD="GOAMD64=v2"; fi
     env $GOAMD go build -o "$PROJECT_DIR/cf-scanner" main.go
