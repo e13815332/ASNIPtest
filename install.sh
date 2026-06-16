@@ -78,8 +78,8 @@ else
 fi
 
 # ── 3. 克隆项目 ──
-PROJECT_DIR="$HOME/cf-ip-scanner"
-REPO_URL="https://github.com/e13815332/subyd.git"
+PROJECT_DIR="$HOME/ASNIPtest"
+REPO_URL="https://github.com/e13815332/ASNIPtest.git"
 BRANCH="main"
 
 if [ -d "$PROJECT_DIR/.git" ]; then
@@ -88,15 +88,7 @@ if [ -d "$PROJECT_DIR/.git" ]; then
     git pull origin "$BRANCH" --ff-only
 else
     info "克隆项目..."
-    git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$PROJECT_DIR.tmp"
-    # 只取 cf-ip-scanner 子目录
-    if [ -d "$PROJECT_DIR.tmp/cf-ip-scanner" ]; then
-        cp -r "$PROJECT_DIR.tmp/cf-ip-scanner" "$PROJECT_DIR"
-        rm -rf "$PROJECT_DIR.tmp"
-    else
-        warn "cf-ip-scanner 目录不存在，请确认仓库结构"
-        exit 1
-    fi
+    git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$PROJECT_DIR"
 fi
 
 # ── 4. 编译 cf-scanner ──
