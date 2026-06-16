@@ -185,9 +185,9 @@ def output_csv(asns):
 # ── Main ──
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        raw = input("  ASN 编号 (多个用逗号分隔): ").strip()
+        raw = input("  输入 ASN 编号 (多个用逗号分隔): ").strip()
         if not raw:
-            print("用法: python3 run.py 209242 或 python3 run.py 209242,3214")
+            print("用法: python3 run.py AS209242 或 python3 run.py AS209242,AS3214")
             sys.exit(1)
         asns = [a.strip().replace("AS", "").replace("as", "") for a in raw.replace("，", ",").split(",") if a.strip()]
     else:
