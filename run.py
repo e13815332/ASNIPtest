@@ -29,6 +29,20 @@ API_CHUNK       = 2000 if RAM_MB < 1024 else 5000
 
 print(f"  硬件: {CPU_CORES}核 {RAM_MB}MB → masscan {MASSCAN_RATE}pps cf-scanner {CF_SCANNER_CONC}c API {API_CONCURRENT}c")
 
+# ── 获取公网 IP (NAT/Docker 环境兼容) ──
+def get_public_ip():
+    """获取公网出口 IP，支持两个 API 互为备用"""
+    apis = [
+        ("https://api.ipify.org", 5),       # 国际，速度快
+        ("https://api-ipv4.ip.sb/ip", 5),   # 国内可用，仅 IPv4
+    ]
+    for url, timeout in apis:
+        try:
+            return urllib.request.urlopen(url, timeout=timeout).read().decode("utf-8").strip()
+        except Exception:
+            continue
+    return "127.0.0.1"
+
 # ── 公网 IP + 运营商检测 ──
 def detect_isp():
     """检测本机公网 IP 及运营商，返回 (ip, country, isp_name)"""
@@ -59,20 +73,6 @@ def detect_isp():
     return ip, "", ""
 
 GLOBAL_IP, GLOBAL_COUNTRY, GLOBAL_ISP = detect_isp()
-
-# ── 获取公网 IP (NAT/Docker 环境兼容) ──
-def get_public_ip():
-    """获取公网出口 IP，支持两个 API 互为备用"""
-    apis = [
-        ("https://api.ipify.org", 5),       # 国际，速度快
-        ("https://api-ipv4.ip.sb/ip", 5),   # 国内可用，仅 IPv4
-    ]
-    for url, timeout in apis:
-        try:
-            return urllib.request.urlopen(url, timeout=timeout).read().decode("utf-8").strip()
-        except Exception:
-            continue
-    return "127.0.0.1"
 
 BASE      = Path(__file__).parent.resolve()
 CF_SCANNER = BASE / "cf-scanner"
