@@ -182,7 +182,15 @@ def run_masscan():
         "-oL", str(result_file),
         "--wait", "5"
     ]
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        # masscan 权限/网卡问题（NAT 容器/无 raw socket）
+        msg = str(e)
+        if "permission denied" in msg.lower() or "init: failed" in msg.lower():
+            print("  ❌ masscan 需要 raw socket 权限，NAT 容器/部分 VPS 不支持")
+            print("  → 请换到 KVM VPS 或物理机运行")
+        raise
 
     # sudo 创建的文件归 root → chown 回当前用户
     if os.geteuid() != 0:
