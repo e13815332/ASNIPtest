@@ -296,9 +296,9 @@ def speed_test():
                     r = subprocess.run([
                         "curl", "--connect-to", f"speed.cloudflare.com:443:{ip}:{port}",
                         "-o", "/dev/null", "-s", "-w", "%{speed_download}",
-                        "--connect-timeout", "5", "--max-time", "10",
-                        "https://speed.cloudflare.com/__down?bytes=524288"
-                    ], capture_output=True, text=True, timeout=15)
+                        "--connect-timeout", "5", "--max-time", "20",
+                        "https://speed.cloudflare.com/__down?bytes=10485760"
+                    ], capture_output=True, text=True, timeout=25)
                     speed_bps = float(r.stdout.strip() or 0)
                     speed_mbps = round(speed_bps * 8 / 1000000, 2)
                 except:
