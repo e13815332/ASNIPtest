@@ -59,17 +59,58 @@ do_update() {
         info "重新编译 cf-scanner..."
         rm -rf "$PROJECT_DIR/cf-scanner"    # 清除旧二进制
         cd "$PROJECT_DIR/cf-scanner-src"
-        # 检查 Go 可用性
-        if ! command -v go &>/dev/null; then
-            warn "Go 未安装，请先运行 install.sh install"
-            exit 1
-        fi
+        ensure_go
         if grep -q avx2 /proc/cpuinfo 2>/dev/null; then GOAMD=""; else GOAMD="GOAMD64=v2"; fi
         env $GOAMD go build -o "$PROJECT_DIR/cf-scanner" main.go
         chmod +x "$PROJECT_DIR/cf-scanner"
     fi
     echo ""
     echo -e "${GREEN}✅ 版本 $NEW_VER${NC}"
+}
+
+# ── Go 安装（install/update 共用）──
+ensure_go() {
+    local GO_VER="1.22.2"
+    local GO_ARCH="linux-amd64"
+    local GO_MIN_MAJOR=1
+    local GO_MIN_MINOR=22
+
+    if command -v go &>/dev/null; then
+        local GO_CUR=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+')
+        local GO_MAJOR=${GO_CUR%%.*}
+        local GO_MINOR=${GO_CUR#*.}
+        if [ "$GO_MAJOR" -gt "$GO_MIN_MAJOR" ] || { [ "$GO_MAJOR" -eq "$GO_MIN_MAJOR" ] && [ "$GO_MINOR" -ge "$GO_MIN_MINOR" ]; }; then
+            info "Go $GO_CUR 已安装"
+            return 0
+        fi
+        warn "Go $GO_CUR 版本过低，需要 ≥${GO_MIN_MAJOR}.${GO_MIN_MINOR}"
+    fi
+
+    warn "安装 Go $GO_VER ..."
+    local GO_DOWNLOADED=false
+    for GO_URL in \
+        "https://golang.google.cn/dl/go${GO_VER}.${GO_ARCH}.tar.gz" \
+        "https://go.dev/dl/go${GO_VER}.${GO_ARCH}.tar.gz"; do
+        if curl -fsSL --connect-timeout 10 "$GO_URL" -o /tmp/go.tar.gz 2>/dev/null; then
+            GO_DOWNLOADED=true
+            break
+        fi
+        warn "  下载失败: $GO_URL"
+    done
+    if ! $GO_DOWNLOADED; then
+        warn "Go 下载失败，请手动安装 Go ≥${GO_MIN_MAJOR}.${GO_MIN_MINOR} 后重试"
+        exit 1
+    fi
+    $SUDO rm -rf /usr/local/go
+    $SUDO tar -C /usr/local -xzf /tmp/go.tar.gz
+    rm -f /tmp/go.tar.gz
+    export PATH="/usr/local/go/bin:$PATH"
+    for RC in "$HOME/.profile" "$HOME/.bashrc"; do
+        if ! grep -q '/usr/local/go/bin' "$RC" 2>/dev/null; then
+            echo 'export PATH="/usr/local/go/bin:$PATH"' >> "$RC"
+        fi
+    done
+    info "Go $GO_VER 安装完成"
 }
 
 # ── 安装 ──
@@ -116,55 +157,7 @@ do_install() {
     install_pkg git
 
     # Go
-    GO_VER="1.22.2"
-    GO_ARCH="linux-amd64"
-    GO_MIN_MAJOR=1
-    GO_MIN_MINOR=22
-
-    need_go=false
-    if command -v go &>/dev/null; then
-        GO_CUR=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+')
-        GO_MAJOR=${GO_CUR%%.*}
-        GO_MINOR=${GO_CUR#*.}
-        if [ "$GO_MAJOR" -gt "$GO_MIN_MAJOR" ] || { [ "$GO_MAJOR" -eq "$GO_MIN_MAJOR" ] && [ "$GO_MINOR" -ge "$GO_MIN_MINOR" ]; }; then
-            info "Go $GO_CUR 已安装"
-        else
-            warn "Go $GO_CUR 版本过低，需要 ≥${GO_MIN_MAJOR}.${GO_MIN_MINOR}，重新安装"
-            need_go=true
-        fi
-    else
-        need_go=true
-    fi
-
-    if $need_go; then
-        warn "安装 Go $GO_VER ..."
-        GO_DOWNLOADED=false
-        # 优先国内镜像（golang.google.cn）→ 官方源
-        for GO_URL in \
-            "https://golang.google.cn/dl/go${GO_VER}.${GO_ARCH}.tar.gz" \
-            "https://go.dev/dl/go${GO_VER}.${GO_ARCH}.tar.gz"; do
-            if curl -fsSL --connect-timeout 10 "$GO_URL" -o /tmp/go.tar.gz 2>/dev/null; then
-                GO_DOWNLOADED=true
-                break
-            fi
-            warn "  下载失败: $GO_URL"
-        done
-        if ! $GO_DOWNLOADED; then
-            warn "Go 下载失败，请手动安装 Go ≥${GO_MIN_MAJOR}.${GO_MIN_MINOR} 后重试"
-            exit 1
-        fi
-        $SUDO rm -rf /usr/local/go
-        $SUDO tar -C /usr/local -xzf /tmp/go.tar.gz
-        rm -f /tmp/go.tar.gz
-        export PATH="/usr/local/go/bin:$PATH"
-        # 持久化 PATH（全新安装时后续 shell 也能直接用 go）
-        for RC in "$HOME/.profile" "$HOME/.bashrc"; do
-            if ! grep -q '/usr/local/go/bin' "$RC" 2>/dev/null; then
-                echo 'export PATH="/usr/local/go/bin:$PATH"' >> "$RC"
-            fi
-        done
-        info "Go $GO_VER 安装完成"
-    fi
+    ensure_go
 
     # 克隆
     if [ -d "$PROJECT_DIR/.git" ]; then
