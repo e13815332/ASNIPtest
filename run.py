@@ -427,7 +427,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"  默认端口: {DEFAULT_PORTS}")
         try:
-            port_input = input("  回车使用默认，或输入自定义端口 (如 443 或 8443-8550): ").strip()
+            port_input = input("  回车使用默认，或输入自定义端口 (如 80 或 1-1000 或 80,443,8000-9000): ").strip()
         except (EOFError, KeyboardInterrupt):
             port_input = ""
         if port_input:
