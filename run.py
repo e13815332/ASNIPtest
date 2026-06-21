@@ -223,8 +223,9 @@ def fetch_prefixes(asns):
 
 # ── Step 2: CIDR → IP ──
 def expand_ips():
-    """Expand CIDR ranges to individual IPs (kept for compatibility; masscan now reads cidrs.txt directly)"""
-    ip_file = BASE / "cidrs.txt"
+    """Expand CIDR ranges to individual IPs (obsolete - masscan reads CIDRs directly)"""
+    ip_file = BASE / "ips.txt"
+    total = 0
     with open(ip_file, "w") as out:
         with open(BASE / "cidrs.txt") as f:
             for cidr in f:
