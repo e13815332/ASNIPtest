@@ -507,25 +507,66 @@ def output_csv(asns):
     print(f"\n  结果: {len(lines)} 条 → {output.name}")
 
     # ── 提供下载链接（局域网 + 公网双链接） ──
+    lan_ip = get_lan_ip()
+    port = 8899
+
+    # 端口被占用 → 尝试释放或换端口
+    import socket
+    def _port_free(p):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(1)
+            return sock.connect_ex(('127.0.0.1', p)) != 0
+        finally:
+            sock.close()
+
+    def _kill_port(p):
+        import signal
+        try:
+            out = subprocess.run(["ss", "-tlnp", f"sport = :{p}"],
+                                 capture_output=True, text=True, timeout=5)
+            for line in out.stdout.split("\n"):
+                if f":{p}" in line and "users:" in line:
+                    m = __import__("re").search(r"pid=(\d+)", line)
+                    if m:
+                        os.kill(int(m.group(1)), signal.SIGTERM)
+                        time.sleep(0.5)
+                        return True
+        except:
+            pass
+        return False
+
+    if not _port_free(port):
+        print(f"  端口 {port} 被占用，尝试释放...")
+        if _kill_port(port) and _port_free(port):
+            print(f"  已释放端口 {port}")
+        else:
+            while not _port_free(port) and port < 9900:
+                port += 1
+            if port >= 9900:
+                print(f"\n  ⚠️  找不到可用端口，跳过下载服务")
+                print(f"  📄 结果文件: {output}")
+                return
+
+    _http_server = None
     try:
-        lan_ip = get_lan_ip()
-        port = 8899
-        print(f"\n  📥 下载链接 (临时, 按回车关闭):")
+        print(f"\n  📥 下载链接 (按回车关闭):")
         print(f"  http://{lan_ip}:{port}/{output.name}  (本机)")
-        # 如果公网 IP 和局域网不同，也显示公网
         public_ip = get_public_ip()
         if public_ip != "127.0.0.1" and public_ip != lan_ip:
             print(f"  http://{public_ip}:{port}/{output.name}  (公网)")
         print()
-        server = subprocess.Popen(
+        _http_server = subprocess.Popen(
             ["python3", "-m", "http.server", str(port), "--directory", str(BASE)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
         input()
-        server.terminate()
-        server.wait()
-    except:
+    except (EOFError, KeyboardInterrupt):
         pass
+    finally:
+        if _http_server and _http_server.poll() is None:
+            _http_server.terminate()
+            _http_server.wait()
 
 # ── Main ──
 if __name__ == "__main__":
