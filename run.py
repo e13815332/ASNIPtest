@@ -3,10 +3,31 @@
 """
 cf-ip-scanner — 从 ASN 拉取 IP，masscan 扫描，检测 Cloudflare 反代节点
 用法: python3 run.py AS209242 [AS3214 ...]
+      python3 run.py --bg AS209242   # 挂机模式（断 SSH 不杀）
+      python3 run.py AS3214 -p 443,8443   # 自定义端口
 """
 import sys, os, subprocess, json, urllib.request, multiprocessing, socket, time, re
 from pathlib import Path
 from datetime import datetime
+
+# ── 挂机模式：无阻塞，立即后台运行，断 SSH 不杀 ──
+if "--bg" in sys.argv:
+    sys.argv.remove("--bg")
+    bg_logdir = Path(__file__).parent.resolve()
+    bg_log = bg_logdir / f"scan_{datetime.now():%Y%m%d_%H%M%S}.log"
+    bg_cmd = [sys.executable, __file__] + sys.argv[1:]
+    with open(bg_log, "w") as f:
+        f.write(f"ASNIPtest 挂机模式 | {datetime.now():%Y-%m-%d %H:%M:%S}\n")
+        f.write(f"命令: {' '.join(bg_cmd)}\n{'='*50}\n")
+    subprocess.Popen(
+        bg_cmd,
+        stdout=open(bg_log, "a"), stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True
+    )
+    print(f"\n  📋 日志: {bg_log}")
+    print(f"  tail -f {bg_log}  # 实时查看\n")
+    sys.exit(0)
 
 # ── 自适应硬件 ──
 def detect_hardware():
@@ -577,6 +598,7 @@ def output_csv(asns):
 
 # ── Main ──
 if __name__ == "__main__":
+
     if len(sys.argv) < 2:
         try:
             raw = input("  输入 ASN 编号 (多个用逗号分隔): ").strip()
