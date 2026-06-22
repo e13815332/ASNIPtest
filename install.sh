@@ -50,9 +50,9 @@ do_update() {
     OLD_VER=$(cat "$PROJECT_DIR/VERSION" 2>/dev/null || echo "未知")
     info "当前版本: $OLD_VER → 检查更新..."
     cd "$PROJECT_DIR"
-    # 清理运行时数据文件，避免 git pull 冲突
-    rm -f cidrs.txt ips.txt cf_hits.txt masscan_result.txt verified.txt output_*.csv 2>/dev/null
-    git pull origin main --ff-only
+    # fetch 安全下载，不碰工作区；reset --hard 强制对齐，无视本地未跟踪文件
+    git fetch origin main
+    git reset --hard origin/main
     NEW_VER=$(cat "$PROJECT_DIR/VERSION" 2>/dev/null || echo "未知")
     if [ "$OLD_VER" = "$NEW_VER" ]; then
         info "已是最新版本 $NEW_VER"
