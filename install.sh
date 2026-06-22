@@ -209,12 +209,25 @@ case "${1:-}" in
                echo "文件: $CSV"
                echo "行数: $(wc -l < "$CSV" | tr -d ' ')"
                echo "---"
-               head -20 "$CSV" | column -t -s','
+               column -t -s',' "$CSV" 2>/dev/null | head -20
                [ "$(wc -l < "$CSV")" -gt 20 ] && echo "... (还有更多行)"
                echo "---"
                echo "下载: cat $CSV"
-               echo "      scp user@host:${CSV} ."
-               echo "      head -5 $CSV  # 只看前几行" ;;
+               LAN=$(hostname -I 2>/dev/null | awk '{print $1}')
+               echo "      curl -O http://$LAN:8899/$(basename "$CSV")  (需先启动服务)"
+               echo "---"
+               if [ "${2:-}" = "--serve" ]; then
+                   PORT=8899
+                   while ss -tlnp 2>/dev/null | grep -q ":$PORT "; do PORT=$((PORT+1)); done
+                   python3 -m http.server "$PORT" --directory "$PROJECT_DIR" &>/dev/null &
+                   HTTP_PID=$!
+                   echo "  🌐 http://$LAN:$PORT/$(basename "$CSV")"
+                   echo "  (按 Ctrl+C 关闭)"
+                   trap "kill $HTTP_PID 2>/dev/null" EXIT
+                   wait $HTTP_PID 2>/dev/null
+               else
+                   echo "  启动下载服务: cmtjd result --serve"
+               fi ;;
     "")        exec python3 "$PROJECT_DIR/run.py" ;;
     *)         exec python3 "$PROJECT_DIR/run.py" "$@" ;;
 esac
