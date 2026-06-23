@@ -6,10 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"net/http"
-	"io"
-	"runtime"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,53 +20,38 @@ var (
 	stateFile   = flag.String("state", "scanner.state", "Checkpoint file for resume")
 	concurrency = flag.Int("c", 500, "Concurrent connections")
 	connectTO   = flag.Duration("connect-timeout", 1500*time.Millisecond, "TCP+TLS connect timeout")
-	totalTO     = flag.Duration("timeout", 2*time.Second, "Total request timeout")
 	port        = flag.String("p", "443", "Target port")
 	sni         = flag.String("sni", "cloudflare.com", "TLS SNI to send")
-	host        = flag.String("host", "www.cloudflare.com", "HTTP Host header")
 )
 
-type result struct {
-	target string
-	reason string
-}
-
-func isCloudflareProxy(ip string, client *http.Client) (bool, string, string) {
+func isCloudflareProxy(ip string) (bool, string) {
 	targetHost, targetPort := ip, *port
 	if h, p, err := net.SplitHostPort(ip); err == nil {
 		targetHost, targetPort = h, p
 	}
 	target := net.JoinHostPort(targetHost, targetPort)
-	req, _ := http.NewRequest("GET", "https://"+target+"/", nil)
-	req.Host = *host
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	req.Close = true // force close connection after response
 
-	resp, err := client.Do(req)
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: *connectTO}, "tcp", target, &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         *sni,
+	})
 	if err != nil {
-		return false, "", target
+		return false, target
 	}
-	defer func() { io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
+	defer conn.Close()
 
-	serverHeader := resp.Header.Get("Server")
-	cfRay := resp.Header.Get("CF-RAY")
-
-	if serverHeader == "cloudflare" || cfRay != "" {
-		reason := fmt.Sprintf("status=%d", resp.StatusCode)
-		if serverHeader == "cloudflare" {
-			reason += " server=cloudflare"
+	certs := conn.ConnectionState().PeerCertificates
+	for _, cert := range certs {
+		if strings.Contains(cert.Subject.CommonName, "cloudflare.com") {
+			return true, target
 		}
-		if cfRay != "" {
-			reason += " cf-ray=" + cfRay[:min(len(cfRay), 30)]
+		for _, name := range cert.DNSNames {
+			if strings.Contains(name, "cloudflare.com") {
+				return true, target
+			}
 		}
-		return true, reason, target
 	}
-
-	if resp.StatusCode == 403 && (serverHeader == "cloudflare" || cfRay != "") {
-		return true, fmt.Sprintf("status=403 server=cloudflare"), target
-	}
-
-	return false, "", target
+	return false, target
 }
 
 func countLines(path string) (int, error) {
@@ -135,7 +118,7 @@ func main() {
 	// Checkpoint resume (state format: input_file<TAB>skip)
 	skip := 0
 	if data, err := os.ReadFile(*stateFile); err == nil {
-		parts := strings.SplitN(strings.TrimSpace(string(data)), "	", 2)
+		parts := strings.SplitN(strings.TrimSpace(string(data)), "\t", 2)
 		if len(parts) == 2 && parts[0] == *inputFile {
 			fmt.Sscanf(parts[1], "%d", &skip)
 			if skip > 0 && skip < total {
@@ -148,23 +131,6 @@ func main() {
 		}
 	}
 
-	// Transport template
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify:  true,
-			ServerName:          *sni,
-			ClientSessionCache:  tls.NewLRUClientSessionCache(0), // disable
-		},
-		DialContext: (&net.Dialer{
-			Timeout: *connectTO,
-		}).DialContext,
-		ForceAttemptHTTP2:	false,
-		MaxIdleConns:		*concurrency,
-		MaxIdleConnsPerHost:	1,
-		IdleConnTimeout:     1 * time.Second,
-		DisableKeepAlives:   true,
-	}
-
 	out, err := os.OpenFile(*outputFile, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to open %s: %v\n", *outputFile, err)
@@ -173,7 +139,6 @@ func main() {
 	defer out.Close()
 
 	jobs := make(chan string, *concurrency*2)
-	results := make(chan result, *concurrency)
 
 	var (
 		scanned  atomic.Int64
@@ -181,52 +146,25 @@ func main() {
 		wg       sync.WaitGroup
 	)
 
-	// Workers
+	// Workers — each with independent TLS dialer
 	for i := 0; i < *concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			client := &http.Client{
-				Transport: transport,
-				Timeout:   *totalTO,
-			}
 			for ip := range jobs {
-				ok, reason, target := isCloudflareProxy(ip, client)
+				ok, target := isCloudflareProxy(ip)
 				n := scanned.Add(1)
 				if ok {
-					results <- result{target, reason}
+					hitCount.Add(1)
+					fmt.Fprintf(out, "%s\n", target)
 				}
 				if n%1000 == 0 {
-					os.WriteFile(*stateFile, []byte(fmt.Sprintf("%s	%d", *inputFile, skip+int(n))), 0644)
+					os.WriteFile(*stateFile, []byte(fmt.Sprintf("%s\t%d", *inputFile, skip+int(n))), 0644)
 				}
 			}
 		}()
 	}
 
-	// Result writer
-	go func() {
-		for r := range results {
-			hitCount.Add(1)
-			fmt.Fprintf(out, "%s  %s\n", r.target, r.reason)
-			out.Sync()
-		}
-	}()
-
-
-	// Periodic GC to prevent memory accumulation
-	gcDone := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-gcDone:
-				return
-			case <-ticker.C:
-				runtime.GC()
-			}
-		}
-	}()
 	// Progress reporter
 	startTime := time.Now()
 	startSkip := int64(skip)
@@ -254,6 +192,21 @@ func main() {
 		}
 	}()
 
+	// Periodic GC
+	gcDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-gcDone:
+				return
+			case <-ticker.C:
+				runtime.GC()
+			}
+		}
+	}()
+
 	// Stream IPs from file (low memory)
 	go func() {
 		if err := streamLines(*inputFile, skip, jobs); err != nil {
@@ -263,11 +216,10 @@ func main() {
 	}()
 
 	wg.Wait()
-	close(results)
-	close(gcDone)
 	close(done)
+	close(gcDone)
 
-	os.WriteFile(*stateFile, []byte(fmt.Sprintf("%s	%d", *inputFile, total)), 0644)
+	os.WriteFile(*stateFile, []byte(fmt.Sprintf("%s\t%d", *inputFile, total)), 0644)
 
 	elapsed := time.Since(startTime)
 	fmt.Printf("\r\033[KDone! %d/%d (100%%) | %s | hits=%d\n",
